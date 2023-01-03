@@ -1,6 +1,7 @@
 from .punishment import PunishmentFactory
-from bs4 import BeautifulSoup, builder_registry
+from .utilities.soup import Soup
 
+from threading import Thread
 import requests
 
 
@@ -29,12 +30,48 @@ class Server:
         history_url = self._get_history_url(response.text)
         if history_url:
             history_response = requests.get(history_url)
-            soup = BeautifulSoup(
-                history_response.text,
-                builder=builder_registry.lookup(*BeautifulSoup.DEFAULT_BUILDER_FEATURES)
-            )
+            soup = Soup.create(html=history_response.text)
 
             return PunishmentFactory.create(soup=soup)
 
         else:
             return []
+
+
+class Servers:
+
+    def __init__(self, name: str) -> None:
+        self.servers = Servers.get_sites()
+        self.punishments = {}
+        self.name = name
+
+    @staticmethod
+    def get_sites():
+        with open("sites.txt") as file:
+            sites = file.readlines()
+            return [
+                Server(site.replace("\n", ""))
+                for site in sites
+            ]
+
+    def get_punishments(self, server_object: Server):
+        new_punishments = []
+        punishments = server_object.get_punishments(name=self.name)
+        for punishment in punishments:
+            new_punishments.append(punishment.as_dict())
+
+        if len(punishments) > 0:
+            self.punishments[server_object.url] = new_punishments
+
+    def lookup(self):
+        threads = []
+        for server in self.servers:
+            threads.append(Thread(target=self.get_punishments, args=(server,)))
+
+        for thread in threads:
+            thread.start()
+
+        for thread in threads:
+            thread.join()
+
+        return self.punishments
